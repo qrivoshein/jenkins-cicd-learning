@@ -1,0 +1,287 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@1289.vd2290d3340a_f">
+  <description>CI/CD Pipeline для Task Manager приложения</description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <hudson.plugins.discarder__notifier.DiscarderProperty plugin="discarder@1.5">
+      <strategy class="hudson.plugins.discarder__notifier.impl.LogRotator">
+        <daysToKeep>7</daysToKeep>
+        <numToKeep>10</numToKeep>
+        <artifactDaysToKeep>-1</artifactDaysToKeep>
+        <artifactNumToKeep>-1</artifactNumToKeep>
+      </strategy>
+    </hudson.plugins.discarder__notifier.DiscarderProperty>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.model.ChoiceParameterDefinition>
+          <name>DEPLOY_ENVIRONMENT</name>
+          <choices class="java.util.Arrays$ArrayList">
+            <a class="string-array">
+              <string>development</string>
+              <string>staging</string>
+              <string>production</string>
+            </a>
+          </choices>
+          <description>Выберите среду для деплоя</description>
+        </hudson.model.ChoiceParameterDefinition>
+        <hudson.model.BooleanParameterDefinition>
+          <name>RUN_TESTS</name>
+          <description>Запустить тесты</description>
+          <defaultValue>true</defaultValue>
+        </hudson.model.BooleanParameterDefinition>
+        <hudson.model.BooleanParameterDefinition>
+          <name>BUILD_DOCKER</name>
+          <description>Собрать Docker образ</description>
+          <defaultValue>true</defaultValue>
+        </hudson.model.BooleanParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@3697.vb_490d2aa2c31">
+    <script>pipeline {
+    agent any
+    
+    environment {
+        APP_NAME = 'task-manager'
+        DOCKER_REGISTRY = 'localhost:5000'
+        GIT_REPO = 'http://gitlab:80/root/task-manager.git'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                echo '🚀 Начинаем CI/CD Pipeline'
+                echo "📦 Деплой в среду: ${params.DEPLOY_ENVIRONMENT}"
+                
+                // Клонируем репозиторий
+                checkout scm
+                
+                // Показываем информацию о коммите
+                script {
+                    def gitCommit = sh(
+                        script: 'git rev-parse --short HEAD',
+                        returnStdout: true
+                    ).trim()
+                    env.GIT_COMMIT_SHORT = gitCommit
+                    echo "🔍 Коммит: ${env.GIT_COMMIT_SHORT}"
+                }
+            }
+        }
+        
+        stage('Install Dependencies') {
+            steps {
+                echo '📥 Устанавливаем зависимости...'
+                sh 'npm ci'
+            }
+        }
+        
+        stage('Code Quality') {
+            steps {
+                echo '🔍 Проверяем качество кода...'
+                
+                // Простая проверка синтаксиса
+                sh 'node -c server.js'
+                sh 'node -c test.js'
+                
+                // Проверка package.json
+                sh 'npm audit --audit-level moderate || true'
+            }
+        }
+        
+        stage('Run Tests') {
+            when {
+                expression { params.RUN_TESTS == true }
+            }
+            steps {
+                echo '🧪 Запускаем тесты...'
+                
+                script {
+                    try {
+                        sh 'node test.js'
+                        echo '✅ Все тесты прошли успешно!'
+                    } catch (Exception e) {
+                        echo '❌ Тесты не прошли!'
+                        error 'Тесты не прошли проверку'
+                    }
+                }
+            }
+        }
+        
+        stage('Build Application') {
+            steps {
+                echo '🏗️ Собираем приложение...'
+                
+                // Создаем артефакты
+                sh 'mkdir -p artifacts'
+                sh 'cp -r app/* artifacts/'
+                sh 'cp package*.json artifacts/'
+                
+                // Архивируем артефакты
+                sh 'tar -czf artifacts.tar.gz artifacts/'
+                
+                // Сохраняем артефакты
+                archiveArtifacts artifacts: 'artifacts.tar.gz', fingerprint: true
+            }
+        }
+        
+        stage('Build Docker Image') {
+            when {
+                expression { params.BUILD_DOCKER == true }
+            }
+            steps {
+                echo '🐳 Собираем Docker образ...'
+                
+                script {
+                    def imageTag = "${env.GIT_COMMIT_SHORT}"
+                    def fullImageName = "${DOCKER_REGISTRY}/${APP_NAME}:${imageTag}"
+                    
+                    // Собираем Docker образ
+                    sh "docker build -t ${fullImageName} ./app"
+                    
+                    // Тегируем образ для среды
+                    sh "docker tag ${fullImageName} ${DOCKER_REGISTRY}/${APP_NAME}:${params.DEPLOY_ENVIRONMENT}-latest"
+                    
+                    echo "🐳 Образ собран: ${fullImageName}"
+                }
+            }
+        }
+        
+        stage('Deploy to Environment') {
+            steps {
+                echo "🚀 Деплоим в среду: ${params.DEPLOY_ENVIRONMENT}"
+                
+                script {
+                    switch(params.DEPLOY_ENVIRONMENT) {
+                        case 'development':
+                            deployToDevelopment()
+                            break
+                        case 'staging':
+                            deployToStaging()
+                            break
+                        case 'production':
+                            deployToProduction()
+                            break
+                        default:
+                            error "Неизвестная среда: ${params.DEPLOY_ENVIRONMENT}"
+                    }
+                }
+            }
+        }
+        
+        stage('Health Check') {
+            steps {
+                echo '🏥 Проверяем здоровье приложения...'
+                
+                script {
+                    def healthUrl = getHealthCheckUrl(params.DEPLOY_ENVIRONMENT)
+                    
+                    // Ждем запуска приложения
+                    sleep 30
+                    
+                    // Проверяем здоровье
+                    def healthCheck = sh(
+                        script: "curl -f ${healthUrl} || exit 1",
+                        returnStatus: true
+                    )
+                    
+                    if (healthCheck == 0) {
+                        echo "✅ Приложение здорово в среде ${params.DEPLOY_ENVIRONMENT}"
+                    } else {
+                        error "❌ Приложение не отвечает в среде ${params.DEPLOY_ENVIRONMENT}"
+                    }
+                }
+            }
+        }
+        
+        stage('Post Deployment') {
+            steps {
+                echo '🎉 Деплой завершен успешно!'
+                
+                // Отправляем уведомление
+                script {
+                    def message = """
+                    🚀 Деплой завершен успешно!
+                    
+                    📋 Приложение: ${APP_NAME}
+                    🌍 Среда: ${params.DEPLOY_ENVIRONMENT}
+                    🔍 Коммит: ${env.GIT_COMMIT_SHORT}
+                    ⏰ Время: ${new Date().format("yyyy-MM-dd HH:mm:ss")}
+                    
+                    🔗 Ссылки:
+                    - Development: http://localhost:3000
+                    - Staging: http://localhost:3001
+                    - Production: http://localhost:3002
+                    """
+                    
+                    echo message
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            echo '🧹 Очищаем рабочую директорию...'
+            cleanWs()
+        }
+        
+        success {
+            echo '🎉 Pipeline выполнен успешно!'
+        }
+        
+        failure {
+            echo '❌ Pipeline завершился с ошибкой!'
+            
+            // Отправляем уведомление об ошибке
+            script {
+                def errorMessage = """
+                ❌ Деплой завершился с ошибкой!
+                
+                📋 Приложение: ${APP_NAME}
+                🌍 Среда: ${params.DEPLOY_ENVIRONMENT}
+                🔍 Коммит: ${env.GIT_COMMIT_SHORT}
+                ⏰ Время: ${new Date().format("yyyy-MM-dd HH:mm:ss")}
+                
+                🔍 Проверьте логи Jenkins для деталей
+                """
+                
+                echo errorMessage
+            }
+        }
+    }
+}
+
+// Функции для деплоя в разные среды
+def deployToDevelopment() {
+    echo '🚀 Деплой в Development...'
+    sh 'docker-compose -f docker-compose.yml up -d app-dev'
+}
+
+def deployToStaging() {
+    echo '🚀 Деплой в Staging...'
+    sh 'docker-compose -f docker-compose.yml up -d app-staging'
+}
+
+def deployToProduction() {
+    echo '🚀 Деплой в Production...'
+    sh 'docker-compose -f docker-compose.yml up -d app-prod'
+}
+
+// Функция для получения URL проверки здоровья
+def getHealthCheckUrl(environment) {
+    switch(environment) {
+        case 'development':
+            return 'http://localhost:3000/health'
+        case 'staging':
+            return 'http://localhost:3001/health'
+        case 'production':
+            return 'http://localhost:3002/health'
+        default:
+            return 'http://localhost:3000/health'
+    }
+}</script>
+    <sandbox>true</sandbox>
+  </definition>
+  <triggers/>
+  <disabled>false</disabled>
+</flow-definition>

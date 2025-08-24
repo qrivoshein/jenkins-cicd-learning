@@ -1,0 +1,22 @@
+# Основные плагины для CI/CD
+workflow-aggregator:latest
+git:latest
+docker-plugin:latest
+docker-workflow:latest
+pipeline-stage-view:latest
+blueocean:latest
+credentials:latest
+ssh-credentials:latest
+plain-credentials:latest
+matrix-project:latest
+parameterized-trigger:latest
+build-timeout:latest
+timestamper:latest
+ws-cleanup:latest
+email-ext:latest
+slack:latest
+junit:latest
+cobertura:latest
+sonar:latest
+nodejs:latest
+npm:latest
