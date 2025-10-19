@@ -83,11 +83,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Главная страница (должна быть последней для работы статических файлов)
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
 app.listen(PORT, () => {
   console.log(`Task Manager server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
