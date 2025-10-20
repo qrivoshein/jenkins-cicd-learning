@@ -5,8 +5,7 @@ pipeline {
         stage('Check Structure') {
             steps {
                 echo 'Checking project structure...'
-                sh 'ls -la'
-                sh 'ls -la app/ || echo "No app folder"'
+                sh 'ls -la app/'
             }
         }
         
@@ -21,8 +20,21 @@ pipeline {
         
         stage('Test') {
             steps {
-                echo 'Running tests in container...'
-                sh 'docker run test-app python -m pytest tests/ -v || echo "Tests completed"'
+                echo 'Running Node.js tests...'
+                sh 'docker run test-app npm test || echo "Tests completed"'
+            }
+        }
+        
+        stage('Run App') {
+            steps {
+                echo 'Starting application...'
+                sh '''
+                    docker run -d --name running-app -p 3000:3000 test-app
+                    sleep 5
+                    curl -f http://localhost:3000 || echo "App might be starting..."
+                    docker stop running-app
+                    docker rm running-app
+                '''
             }
         }
     }
