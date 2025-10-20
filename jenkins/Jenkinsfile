@@ -1,0 +1,12 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Hello') {
+            steps {
+                echo 'Hello World! First pipeline works!'
+                sh 'ls -la'
+            }
+        }
+    }
+}
