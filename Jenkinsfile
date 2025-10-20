@@ -36,8 +36,8 @@ pipeline {
             steps {
                 echo 'Deploying to test environment...'
                 sh '''
-                    docker run -d --name demo-app -p 8080:3000 test-app
-                    echo "Application deployed at: http://localhost:8080"
+                    docker run -d --name demo-app -p 8081:3000 test-app
+                    echo "Application deployed at: http://localhost:8081"
                     echo "Check running containers:"
                     docker ps
                 '''
@@ -53,7 +53,7 @@ pipeline {
         success {
             echo '🎉 SUCCESS! CI/CD pipeline is working!'
             sh '''
-                echo "Demo app is running at: http://localhost:8080"
+                echo "Demo app is running at: http://localhost:8081"
                 echo "To stop: docker stop demo-app"
             '''
         }
