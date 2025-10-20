@@ -18,6 +18,22 @@ pipeline {
             }
         }
         
+        // ↓↓↓ ДОБАВЬ ЭТОТ STAGE ЗДЕСЬ ↓↓↓
+        stage('Setup Frontend') {
+            steps {
+                echo 'Setting up frontend...'
+                sh '''
+                    # Копируем папку public в контейнер app
+                    docker cp ./public demo-app:/app/
+                    echo "Frontend files copied to container"
+                    
+                    # Проверяем что скопировалось
+                    docker exec demo-app ls -la /app/public/
+                '''
+            }
+        }
+        // ↑↑↑ ДОБАВЬ ЭТОТ STAGE ЗДЕСЬ ↑↑↑
+        
         stage('Test') {
             steps {
                 echo 'Checking if app starts...'
